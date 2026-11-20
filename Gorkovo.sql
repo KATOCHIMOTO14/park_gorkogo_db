@@ -1,0 +1,536 @@
+CREATE DATABASE IF NOT EXISTS park_gorkogo
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+USE park_gorkogo;
+
+SET NAMES utf8mb4;
+
+DROP TABLE IF EXISTS order_service;
+DROP TABLE IF EXISTS rental_order;
+DROP TABLE IF EXISTS service;
+DROP TABLE IF EXISTS client;
+DROP TABLE IF EXISTS login_history;
+DROP TABLE IF EXISTS staff;
+DROP TABLE IF EXISTS order_status;
+DROP TABLE IF EXISTS job_title;
+
+CREATE TABLE job_title (
+    job_title_id   INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    job_title_name VARCHAR(50) NOT NULL,
+                   UNIQUE (job_title_name)
+);
+
+CREATE TABLE order_status (
+    order_status_id   INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    order_status_name VARCHAR(30) NOT NULL,
+                      UNIQUE (order_status_name)
+);
+
+CREATE TABLE staff (
+    staff_id       INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    job_title_id   INT          NOT NULL,
+                   FOREIGN KEY (job_title_id)
+                   REFERENCES job_title (job_title_id)
+                   ON DELETE RESTRICT
+                   ON UPDATE CASCADE,
+    last_name      VARCHAR(100) NOT NULL,
+    first_name     VARCHAR(50)  NOT NULL,
+    patronymic     VARCHAR(50)  NULL,
+    login_name     VARCHAR(100) NOT NULL,
+                   UNIQUE (login_name),
+                   CONSTRAINT staff_login_name_format
+                   CHECK (login_name LIKE '%_@_%._%'),
+    login_password VARCHAR(50)  NOT NULL,
+    photo_path     VARCHAR(200) NULL
+);
+
+CREATE TABLE login_history (
+    login_history_id INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    staff_id         INT          NULL,
+                     FOREIGN KEY (staff_id)
+                     REFERENCES staff (staff_id)
+                     ON DELETE SET NULL
+                     ON UPDATE CASCADE,
+    login_name       VARCHAR(100) NOT NULL,
+    login_datetime   DATETIME     NOT NULL,
+    is_successful    BOOLEAN      NOT NULL,
+                     INDEX login_history_name_datetime_idx (login_name, login_datetime)
+);
+
+CREATE TABLE client (
+    client_id       INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    last_name       VARCHAR(100) NOT NULL,
+    first_name      VARCHAR(50)  NOT NULL,
+    patronymic      VARCHAR(50)  NULL,
+    email           VARCHAR(100) NOT NULL,
+                    UNIQUE (email),
+                    CONSTRAINT client_email_format
+                    CHECK (email LIKE '%_@_%._%'),
+    address         VARCHAR(255) NOT NULL,
+    birth_date      DATE         NOT NULL,
+                    CONSTRAINT client_birth_date_range
+                    CHECK (birth_date >= '1900-01-01'),
+    passport_series CHAR(4)      NOT NULL,
+                    CONSTRAINT client_passport_series_digits
+                    CHECK (passport_series REGEXP '^[0-9]{4}$'),
+    passport_num    CHAR(6)      NOT NULL,
+                    CONSTRAINT client_passport_num_digits
+                    CHECK (passport_num REGEXP '^[0-9]{6}$'),
+    phone           VARCHAR(20)  NULL,
+    login_password  VARCHAR(50)  NOT NULL,
+                    UNIQUE (passport_series, passport_num)
+);
+
+CREATE TABLE service (
+    service_id   INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    service_name VARCHAR(100)  NOT NULL,
+                 UNIQUE (service_name),
+    service_code VARCHAR(20)   NOT NULL,
+                 UNIQUE (service_code),
+    hourly_cost  DECIMAL(10,2) NOT NULL,
+                 CONSTRAINT service_hourly_cost_positive
+                 CHECK (hourly_cost > 0)
+);
+
+CREATE TABLE rental_order (
+    order_id         INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    order_num        INT         NOT NULL,
+                     CONSTRAINT rental_order_num_positive
+                     CHECK (order_num > 0),
+    is_archived      BOOLEAN     DEFAULT FALSE NOT NULL,
+    active_order_num INT         GENERATED ALWAYS AS
+                     (CASE WHEN is_archived = FALSE THEN order_num END) STORED,
+                     UNIQUE (active_order_num),
+    client_id        INT         NOT NULL,
+                     FOREIGN KEY (client_id)
+                     REFERENCES client (client_id)
+                     ON DELETE RESTRICT
+                     ON UPDATE CASCADE,
+    staff_id         INT         NULL,
+                     FOREIGN KEY (staff_id)
+                     REFERENCES staff (staff_id)
+                     ON DELETE RESTRICT
+                     ON UPDATE CASCADE,
+    order_status_id  INT         NOT NULL,
+                     FOREIGN KEY (order_status_id)
+                     REFERENCES order_status (order_status_id)
+                     ON DELETE RESTRICT
+                     ON UPDATE CASCADE,
+    create_datetime  DATETIME    DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    close_date       DATE        NULL,
+    rental_minutes   INT         NOT NULL,
+                     CONSTRAINT rental_order_minutes_positive
+                     CHECK (rental_minutes > 0),
+    barcode          VARCHAR(30) NULL,
+                     UNIQUE (barcode),
+                     CONSTRAINT rental_order_close_after_create
+                     CHECK (close_date IS NULL
+                            OR close_date >= CAST(create_datetime AS DATE))
+);
+
+CREATE TABLE order_service (
+    order_id   INT NOT NULL,
+               FOREIGN KEY (order_id)
+               REFERENCES rental_order (order_id)
+               ON DELETE CASCADE
+               ON UPDATE CASCADE,
+    service_id INT NOT NULL,
+               FOREIGN KEY (service_id)
+               REFERENCES service (service_id)
+               ON DELETE RESTRICT
+               ON UPDATE CASCADE,
+               PRIMARY KEY (order_id, service_id)
+);
+
+INSERT INTO job_title (job_title_id, job_title_name)
+VALUES (1, 'Продавец'),
+       (2, 'Администратор'),
+       (3, 'Старший смены');
+
+INSERT INTO order_status (order_status_id, order_status_name)
+VALUES (1, 'Новая'),
+       (2, 'В прокате'),
+       (3, 'Закрыта');
+
+INSERT INTO staff (staff_id, job_title_id, last_name, first_name, patronymic,
+                   login_name, login_password, photo_path)
+VALUES (101, 1, 'Иванов', 'Иван', 'Иванович', 'Ivanov@namecomp.ru', '2L6KZG', 'photos/Иванов.jpeg'),
+       (102, 1, 'Петров', 'Петр', 'Петрович', 'petrov@namecomp.ru', 'uzWC67', 'photos/Петров.jpeg'),
+       (103, 2, 'Федоров', 'Федор', 'Федорович', 'fedorov@namecomp.ru', '8ntwUp', 'photos/Федоров.jpeg'),
+       (104, 3, 'Миронов', 'Вениамин', 'Куприянович', 'mironov@namecomp.ru', 'YOyhfR', 'photos/Миронов.jpeg'),
+       (105, 3, 'Ширяев', 'Ермолай', 'Вениаминович', 'shiryev@namecomp.ru', 'RSbvHv', 'photos/Ширяев.jpeg'),
+       (106, 3, 'Игнатов', 'Кассиан', 'Васильевич', 'ignatov@namecomp.ru', 'rwVDh9', 'photos/Игнатов.jpg'),
+       (107, 1, 'Хохлов', 'Владимир', 'Мэлсович', 'hohlov@namecomp.ru', 'LdNyos', 'photos/Хохлов.jpeg'),
+       (108, 1, 'Стрелков', 'Мстислав', 'Георгьевич', 'strelkov@namecomp.ru', 'gynQMT', 'photos/Стрелков.jpeg'),
+       (109, 1, 'Беляева', 'Лилия', 'Наумовна', 'belyeva@namecomp.ru', 'AtnDjr', 'photos/Беляева.jpeg'),
+       (110, 1, 'Смирнова', 'Ульяна', 'Гордеевна', 'smirnova@namecomp.ru', 'JlFRCZ', 'photos/Смирнова.jpeg');
+
+INSERT INTO login_history (staff_id, login_name, login_datetime, is_successful)
+VALUES (101, 'Ivanov@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (102, 'petrov@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (103, 'fedorov@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (104, 'mironov@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (105, 'shiryev@namecomp.ru', '2022-05-15 13:13:00', FALSE),
+       (106, 'ignatov@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (107, 'hohlov@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (108, 'strelkov@namecomp.ru', '2022-05-15 13:13:00', FALSE),
+       (109, 'belyeva@namecomp.ru', '2022-05-15 13:13:00', TRUE),
+       (110, 'smirnova@namecomp.ru', '2022-05-15 13:13:00', TRUE);
+
+INSERT INTO client (client_id, last_name, first_name, patronymic, email,
+                    address, birth_date, passport_series, passport_num, phone,
+                    login_password)
+VALUES (45462526, 'Фролов', 'Андрей', 'Иванович', 'gohufreilagrau-3818@yopmail.com', '344288, г. Москва, ул. Чехова, 1, кв. 34', '2001-07-14', '1180', '176596', NULL, 'cl12345'),
+       (45462527, 'Николаев', 'Даниил', 'Всеволодович', 'xawugosune-1385@yopmail.com', '614164, г. Москва, ул. Степная, 30, кв. 75', '2001-02-10', '2280', '223523', NULL, 'cl12346'),
+       (45462528, 'Снегирев', 'Макар', 'Иванович', 'satrahuddusei-4458@yopmail.com', '394242, г. Москва, ул. Коммунистическая, 43, кв. 57', '1998-05-21', '4560', '354155', NULL, 'cl12347'),
+       (45462529, 'Иванов', 'Иван', 'Ильич', 'boippaxeufrepra-7093@yopmail.com', '660540, г. Москва, ул. Солнечная, 25, кв. 78', '1998-10-01', '9120', '554296', NULL, 'cl12348'),
+       (45462530, 'Филиппова', 'Анна', 'Глебовна', 'zapramaxesu-7741@yopmail.com', '125837, г. Москва, ул. Шоссейная, 40, кв. 92', '1976-05-31', '2367', '558134', NULL, 'cl12349'),
+       (45462531, 'Иванов', 'Михаил', 'Владимирович', 'rouzecroummegre-3899@yopmail.com', '125703, г. Москва, ул. Партизанская, 49, кв. 84', '1985-11-04', '7101', '669343', NULL, 'cl12350'),
+       (45462532, 'Власов', 'Дмитрий', 'Александрович', 'ziyeuddocrabri-4748@yopmail.com', '625283, г. Москва, ул. Победы, 46, кв. 7', '1998-08-17', '3455', '719630', NULL, 'cl12351'),
+       (45462533, 'Серова', 'Екатерина', 'Львовна', 'ketameissoinnei-1951@yopmail.com', '614611, г. Москва, ул. Молодежная, 50, кв. 78', '1984-10-24', '2377', '871623', NULL, 'cl12352'),
+       (45462534, 'Борисова', 'Ирина', 'Ивановна', 'yipraubaponou-5849@yopmail.com', '454311, г. Москва, ул. Новая, 19, кв. 78', '1976-10-14', '8755', '921148', NULL, 'cl12353'),
+       (45462535, 'Зайцев', 'Никита', 'Артёмович', 'crapedocouca-3572@yopmail.com', '660007, г. Москва, ул. Октябрьская, 19, кв. 42', '1999-10-14', '4355', '104594', NULL, 'cl12354'),
+       (45462536, 'Медведев', 'Святослав', 'Евгеньевич', 'ceigoixakaunni-9227@yopmail.com', '603036, г. Москва, ул. Садовая, 4, кв. 13', '1985-07-13', '2791', '114390', NULL, 'cl12355'),
+       (45462537, 'Коротков', 'Кирилл', 'Алексеевич', 'yeimmeiwauzomo-7054@yopmail.com', '450983, г. Москва, ул. Комсомольская, 26, кв. 60', '1976-05-26', '5582', '126286', NULL, 'cl12356'),
+       (45462538, 'Калашникова', 'Арина', 'Максимовна', 'poleifenevi-1560@yopmail.com', '394782, г. Москва, ул. Чехова, 3, кв. 14', '1999-08-13', '2978', '133653', NULL, 'cl12357'),
+       (45462539, 'Минина', 'Таисия', 'Кирилловна', 'kauprezofautei-6607@yopmail.com', '603002, г. Москва, ул. Дзержинского, 28, кв. 56', '1985-10-13', '7512', '141956', NULL, 'cl12358'),
+       (45462540, 'Наумов', 'Серафим', 'Романович', 'quaffaullelourei-1667@yopmail.com', '450558, г. Москва, ул. Набережная, 30, кв. 71', '1999-04-15', '5046', '158433', NULL, 'cl12359'),
+       (45462541, 'Воробьева', 'Василиса', 'Евгеньевна', 'jsteele@rojas-robinson.net', '394060, г. Москва, ул. Фрунзе, 43, кв. 79', '1999-01-13', '2460', '169505', NULL, 'cl12360'),
+       (45462542, 'Калинин', 'Александр', 'Андреевич', 'vhopkins@lewis-mullen.com', '410661, г. Москва, ул. Школьная, 50, кв. 53', '1999-01-07', '3412', '174593', NULL, 'cl12361'),
+       (45462543, 'Кузнецова', 'Милана', 'Владиславовна', 'nlewis@yahoo.com', '625590, г. Москва, ул. Коммунистическая, 20, кв. 34', '1999-01-24', '4950', '183034', NULL, 'cl12362'),
+       (45462544, 'Фирсов', 'Егор', 'Романович', 'garciadavid@mckinney-mcbride.com', '625683, г. Москва, ул. 8 Марта, 20, кв. 21', '1993-09-02', '5829', '219464', NULL, 'cl12363'),
+       (45462545, 'Зимина', 'Агния', 'Александровна', 'cbradley@castro.com', '400562, г. Москва, ул. Зеленая, 32, кв. 67', '1998-09-03', '6443', '208059', NULL, 'cl12364'),
+       (45462546, 'Титов', 'Андрей', 'Глебович', 'cuevascatherine@carlson.biz', '614510, г. Москва, ул. Маяковского, 47, кв. 72', '1985-10-23', '7079', '213265', NULL, 'cl12365'),
+       (45462547, 'Орлов', 'Николай', 'Егорович', 'thomasmoore@wilson-singh.net', '410542, г. Москва, ул. Светлая, 46, кв. 82', '1985-07-27', '8207', '522702', NULL, 'cl12366'),
+       (45462548, 'Кузнецова', 'Аиша', 'Михайловна', 'jessica84@hotmail.com', '620839, г. Москва, ул. Цветочная, 8, кв. 100', '1998-10-04', '9307', '232158', NULL, 'cl12367'),
+       (45462549, 'Куликов', 'Никита', 'Георгиевич', 'jessicapark@hotmail.com', '443890, г. Москва, ул. Коммунистическая, 1, кв. 10', '1999-04-23', '1357', '242839', NULL, 'cl12368'),
+       (45462550, 'Карпова', 'София', 'Егоровна', 'ginaritter@schneider-buchanan.com', '603379, г. Москва, ул. Спортивная, 46, кв. 95', '1993-10-01', '1167', '256636', NULL, 'cl12369'),
+       (45462551, 'Смирнова', 'Дарья', 'Макаровна', 'stephen99@yahoo.com', '603721, г. Москва, ул. Гоголя, 41, кв. 57', '1976-03-22', '1768', '266986', NULL, 'cl12370'),
+       (45462552, 'Абрамова', 'Александра', 'Мироновна', 'lopezlisa@hotmail.com', '410172, г. Москва, ул. Северная, 13, кв. 86', '1999-03-26', '1710', '427875', NULL, 'cl12371'),
+       (45462553, 'Наумов', 'Руслан', 'Михайлович', 'lori17@hotmail.com', '420151, г. Москва, ул. Вишневая, 32, кв. 81', '1999-10-11', '1806', '289145', NULL, 'cl12372'),
+       (45462554, 'Бочаров', 'Никита', 'Матвеевич', 'campbellkevin@gardner.com', '125061, г. Москва, ул. Подгорная, 8, кв. 74', '1997-06-29', '1587', '291249', NULL, 'cl12373'),
+       (45462555, 'Соловьев', 'Давид', 'Ильич', 'morganhoward@clark.com', '630370, г. Москва, ул. Шоссейная, 24, кв. 81', '1984-03-06', '1647', '306372', NULL, 'cl12374'),
+       (45462556, 'Васильева', 'Валерия', 'Дмитриевна', 'carsontamara@gmail.com', '614753, г. Москва, ул. Полевая, 35, кв. 39', '1999-09-30', '1742', '316556', NULL, 'cl12375'),
+       (45462557, 'Макарова', 'Василиса', 'Андреевна', 'kevinpatel@gmail.com', '426030, г. Москва, ул. Маяковского, 44, кв. 93', '1999-04-08', '1474', '326347', NULL, 'cl12376'),
+       (45462558, 'Алексеев', 'Матвей', 'Викторович', 'sethbishop@yahoo.com', '450375, г. Москва, ул. Клубная, 44, кв. 80', '1998-08-02', '1452', '339539', NULL, 'cl12377'),
+       (45462559, 'Никитина', 'Полина', 'Александровна', 'drollins@schultz-soto.net', '625560, г. Москва, ул. Некрасова, 12, кв. 66', '1976-09-19', '2077', '443480', NULL, 'cl12378'),
+       (45462560, 'Окулова', 'Олеся', 'Алексеевна', 'pblack@copeland-winters.org', '630201, г. Москва, ул. Комсомольская, 17, кв. 25', '1999-04-03', '2147', '357518', NULL, 'cl12379'),
+       (45462561, 'Захарова', 'Полина', 'Яновна', 'johnathon.oberbrunner@yahoo.com', '190949, г. Москва, ул. Мичурина, 26, кв. 93', '1976-04-21', '2687', '363884', NULL, 'cl12380'),
+       (45462562, 'Зайцев', 'Владимир', 'Давидович', 'bradly29@gmail.com', '350501, г. Москва, ул. Парковая, 2, кв. 7', '1998-01-26', '2376', '443711', NULL, 'cl12381'),
+       (45462563, 'Иванов', 'Виталий', 'Даниилович', 'stark.cristina@hilpert.biz', '450048, г. Москва, ул. Коммунистическая, 21, кв. 3', '1976-08-11', '2568', '386237', NULL, 'cl12382'),
+       (45462564, 'Захаров', 'Матвей', 'Романович', 'bruen.eleanore@yahoo.com', '644921, г. Москва, ул. Школьная, 46, кв. 37', '1993-07-12', '2556', '439376', NULL, 'cl12383'),
+       (45462565, 'Иванов', 'Степан', 'Степанович', 'percival.halvorson@yahoo.com', '614228, г. Москва, ул. Дорожная, 36, кв. 54', '1998-09-19', '2737', '407501', NULL, 'cl12384'),
+       (45462566, 'Ткачева', 'Милана', 'Тимуровна', 'javonte71@kuhlman.biz', '350940, г. Москва, ул. Первомайская, 23, кв. 2', '1998-05-24', '2581', '441645', NULL, 'cl12385'),
+       (45462567, 'Семенов', 'Даниил', 'Иванович', 'vconnelly@kautzer.com', '344990, г. Москва, ул. Красноармейская, 19, кв. 92', '1976-01-04', '2675', '427933', NULL, 'cl12386'),
+       (45462568, 'Виноградов', 'Вячеслав', 'Дмитриевич', 'anabelle07@schultz.info', '410248, г. Москва, ул. Чкалова, 11, кв. 75', '1976-07-12', '2967', '434531', NULL, 'cl12387'),
+       (45462569, 'Соболева', 'Николь', 'Фёдоровна', 'nitzsche.katlynn@yahoo.com', '400839, г. Москва, ул. 8 Марта, 46, кв. 44', '1976-05-02', '3070', '449655', NULL, 'cl12388'),
+       (45462570, 'Тихонова', 'Анна', 'Львовна', 'corine16@von.com', '450539, г. Москва, ул. Заводская, 3, кв. 81', '1985-03-23', '3108', '451174', NULL, 'cl12389'),
+       (45462571, 'Кузнецова', 'Ульяна', 'Савельевна', 'otha.wisozk@lubowitz.org', '614591, г. Москва, ул. Цветочная, 20, кв. 40', '1999-06-03', '3250', '464705', NULL, 'cl12390'),
+       (45462572, 'Смирнова', 'Анна', 'Германовна', 'may.kirlin@hotmail.com', '400260, г. Москва, ул. Больничная, 30, кв. 53', '1997-07-18', '3392', '471644', NULL, 'cl12391'),
+       (45462573, 'Черепанова', 'Анна', 'Давидовна', 'bryana.kautzer@yahoo.com', '660924, г. Москва, ул. Молодежная, 32, кв. 59', '1985-11-06', '3497', '487819', NULL, 'cl12392'),
+       (45462574, 'Григорьев', 'Максим', 'Кириллович', 'deborah.christiansen@quigley.biz', '644133, г. Москва, ул. Гагарина, 28, кв. 69', '1999-05-26', '3560', '491260', NULL, 'cl12393'),
+       (45462575, 'Голубев', 'Даниэль', 'Александрович', 'connelly.makayla@yahoo.com', '450698, г. Москва, ул. Вокзальная, 14, кв. 37', '1999-06-14', '3620', '506034', NULL, 'cl12394'),
+       (45462576, 'Миронов', 'Юрий', 'Денисович', 'tatum.collins@fay.org', '620653, г. Москва, ул. Западная, 15, кв. 25', '1985-01-26', '3774', '511438', NULL, 'cl12395'),
+       (45462577, 'Терехов', 'Михаил', 'Андреевич', 'itzel73@anderson.com', '644321, г. Москва, ул. Клубная, 32, кв. 10', '1976-07-06', '3862', '521377', NULL, 'cl12396'),
+       (45462578, 'Орлова', 'Алиса', 'Михайловна', 'arjun39@hotmail.com', '603653, г. Москва, ул. Молодежная, 2, кв. 45', '1997-02-24', '3084', '535966', NULL, 'cl12397'),
+       (45462579, 'Кулаков', 'Константин', 'Даниилович', 'ohara.rebeka@yahoo.com', '410181, г. Москва, ул. Механизаторов, 16, кв. 74', '1993-06-20', '4021', '541528', NULL, 'cl12398'),
+       (45462580, 'Кудрявцев', 'Максим', 'Романович', 'danika58@rath.com', '394207, г. Москва, ул. Свердлова, 31, кв. 28', '1998-05-10', '4109', '554053', NULL, 'cl12399'),
+       (45462581, 'Соболева', 'Кира', 'Фёдоровна', 'janae.bogan@gmail.com', '420633, г. Москва, ул. Матросова, 18, кв. 41', '1998-03-14', '4537', '564868', NULL, 'cl12400'),
+       (45462582, 'Коновалов', 'Арсений', 'Максимович', 'vern91@yahoo.com', '445720, г. Москва, ул. Матросова, 50, кв. 67', '1985-02-18', '4914', '572471', NULL, 'cl12401'),
+       (45462583, 'Гусев', 'Михаил', 'Дмитриевич', 'mariana.leannon@larkin.net', '400646, г. Москва, ул. Октябрьская, 47, кв. 65', '1999-11-23', '4445', '581302', NULL, 'cl12402'),
+       (45462584, 'Суханова', 'Варвара', 'Матвеевна', 'vmoore@gmail.com', '644410, г. Москва, ул. Красная, 17, кв. 69', '1993-09-13', '4743', '598180', NULL, 'cl12403'),
+       (45462585, 'Орлова', 'Ясмина', 'Васильевна', 'damon.mcclure@mills.com', '400750, г. Москва, ул. Школьная, 36, кв. 71', '1984-06-24', '4741', '601821', NULL, 'cl12404'),
+       (45462586, 'Васильева', 'Ксения', 'Константиновна', 'grady.reilly@block.com', '660590, г. Москва, ул. Дачная, 37, кв. 70', '1999-08-01', '4783', '612567', NULL, 'cl12405'),
+       (45462587, 'Борисова', 'Тамара', 'Данииловна', 'boyd.koss@yahoo.com', '426083, г. Москва, ул. Механизаторов, 41, кв. 26', '1993-05-29', '4658', '621200', NULL, 'cl12406'),
+       (45462588, 'Дмитриев', 'Мирон', 'Ильич', 'obartell@franecki.info', '410569, г. Москва, ул. Парковая, 36, кв. 17', '1985-04-13', '4908', '634613', NULL, 'cl12407'),
+       (45462589, 'Лебедева', 'Анна', 'Александровна', 'reina75@ferry.net', '443375, г. Москва, ул. Дзержинского, 50, кв. 95', '1985-03-30', '5092', '642468', NULL, 'cl12408'),
+       (45462590, 'Пономарев', 'Артём', 'Маркович', 'karson28@hotmail.com', '614316, г. Москва, ул. Первомайская, 48, кв. 31', '1984-06-02', '5155', '465274', NULL, 'cl12409'),
+       (45462591, 'Борисова', 'Елена', 'Михайловна', 'damaris61@okon.com', '445685, г. Москва, ул. Зеленая, 7, кв. 47', '1976-05-23', '5086', '666893', NULL, 'cl12410'),
+       (45462592, 'Моисеев', 'Камиль', 'Максимович', 'carroll.jerod@hotmail.com', '614505, г. Москва, ул. Нагорная, 37, кв. 31', '1999-06-17', '5333', '675375', NULL, 'cl12411'),
+       (45462593, 'Герасимова', 'Дарья', 'Константиновна', 'ron.treutel@quitzon.com', '426629, г. Москва, ул. Весенняя, 32, кв. 46', '1984-10-13', '5493', '684572', NULL, 'cl12412'),
+       (45462594, 'Михайлова', 'Мария', 'Марковна', 'olen79@yahoo.com', '603743, г. Москва, ул. Матросова, 19, кв. 20', '1976-12-02', '5150', '696226', NULL, 'cl12413'),
+       (45462595, 'Коршунов', 'Кирилл', 'Максимович', 'pacocha.robbie@yahoo.com', '450750, г. Москва, ул. Клубная, 23, кв. 90', '1985-05-22', '1308', '703305', NULL, 'cl12414');
+
+INSERT INTO service (service_id, service_name, service_code, hourly_cost)
+VALUES (336, 'Прокат велосипеда', '8HFJHG443', 1000),
+       (353, 'Прокат шлема', '87FDJKHJ', 400),
+       (31, 'Прокат набора защитного оборудования', 'JUR8R', 1000),
+       (34, 'Прокат роликов', 'JKFBJ09', 1000),
+       (98, 'Прокат самоката', '63748HF', 700),
+       (45, 'Прокат электросамоката', 'JFH7382', 1200),
+       (89, 'Прокат велоколяски', 'OIJNB12', 2000),
+       (99, 'Экскурсия', 'BSFBHV63', 2000),
+       (92, 'Аренда гироскутера', 'HJBUJE21J', 1200),
+       (44, 'Аренда моноколеса', 'DHBGFY563', 1000),
+       (57, 'Инструктор по катанию на роликах', 'JHVSJF6', 1000),
+       (88, 'Инструктор по катанию на велосипеде', 'DJHGBS982', 1000),
+       (123, 'Инструктор по катанию на гироскутере', '638VVNQ3', 1200);
+
+INSERT INTO rental_order (order_id, order_num, is_archived, client_id,
+                          staff_id, order_status_id, create_datetime,
+                          close_date, rental_minutes, barcode)
+VALUES (1, 1, FALSE, 45462526, NULL, 1, '2022-03-12 09:10:00', NULL, 120, NULL),
+       (2, 2, FALSE, 45462527, NULL, 2, '2022-03-13 10:10:00', NULL, 600, NULL),
+       (3, 3, FALSE, 45462528, NULL, 2, '2022-03-14 11:10:00', NULL, 120, NULL),
+       (4, 4, FALSE, 45462529, NULL, 1, '2022-03-15 12:10:00', NULL, 600, NULL),
+       (5, 5, FALSE, 45462530, NULL, 3, '2022-03-16 13:10:00', '2022-04-16', 320, NULL),
+       (6, 6, FALSE, 45462531, NULL, 1, '2022-03-17 14:10:00', NULL, 480, NULL),
+       (7, 7, FALSE, 45462532, NULL, 1, '2022-03-18 15:10:00', NULL, 240, NULL),
+       (8, 8, FALSE, 45462533, NULL, 2, '2022-03-19 16:10:00', NULL, 360, NULL),
+       (9, 9, FALSE, 45462534, NULL, 3, '2022-03-20 10:00:00', '2022-03-20', 720, NULL),
+       (10, 10, FALSE, 45462535, NULL, 1, '2022-03-21 11:00:00', NULL, 120, NULL),
+       (11, 11, FALSE, 45462536, NULL, 3, '2022-03-22 12:00:00', '2022-03-22', 600, NULL),
+       (12, 12, FALSE, 45462537, NULL, 2, '2022-03-23 13:00:00', NULL, 120, NULL),
+       (13, 13, FALSE, 45462538, NULL, 2, '2022-03-24 14:00:00', NULL, 600, NULL),
+       (14, 14, FALSE, 45462539, NULL, 2, '2022-03-25 15:00:00', NULL, 320, NULL),
+       (15, 15, FALSE, 45462540, NULL, 3, '2022-03-26 16:00:00', '2022-04-26', 480, NULL),
+       (16, 16, FALSE, 45462541, NULL, 1, '2022-03-27 17:00:00', NULL, 240, NULL),
+       (17, 17, FALSE, 45462542, NULL, 2, '2022-03-28 18:00:00', NULL, 360, NULL),
+       (18, 18, FALSE, 45462543, NULL, 2, '2022-03-29 19:00:00', NULL, 720, NULL),
+       (19, 19, FALSE, 45462544, NULL, 1, '2022-03-30 12:30:00', NULL, 120, NULL),
+       (20, 20, FALSE, 45462545, NULL, 1, '2022-03-31 13:30:00', NULL, 600, NULL),
+       (21, 21, FALSE, 45462546, NULL, 3, '2022-04-01 14:30:00', '2022-04-01', 120, NULL),
+       (22, 22, FALSE, 45462547, NULL, 1, '2022-04-02 15:30:00', NULL, 600, NULL),
+       (23, 23, FALSE, 45462548, NULL, 1, '2022-04-03 16:30:00', NULL, 320, NULL),
+       (24, 24, FALSE, 45462549, NULL, 2, '2022-04-04 17:30:00', NULL, 480, NULL),
+       (25, 25, FALSE, 45462550, NULL, 2, '2022-04-05 18:30:00', NULL, 240, NULL),
+       (26, 26, FALSE, 45462551, NULL, 2, '2022-04-06 15:30:00', NULL, 360, NULL),
+       (27, 27, FALSE, 45462552, NULL, 2, '2022-04-07 16:30:00', NULL, 720, NULL),
+       (28, 28, FALSE, 45462553, NULL, 3, '2022-04-08 17:30:00', '2022-04-08', 120, NULL),
+       (29, 29, FALSE, 45462554, NULL, 1, '2022-04-09 18:30:00', NULL, 600, NULL),
+       (30, 30, FALSE, 45462555, NULL, 2, '2022-04-10 19:30:00', NULL, 120, NULL),
+       (31, 31, FALSE, 45462556, NULL, 2, '2022-04-11 10:30:00', NULL, 600, NULL),
+       (32, 32, FALSE, 45462557, NULL, 1, '2022-04-12 11:30:00', NULL, 320, NULL),
+       (33, 33, FALSE, 45462558, NULL, 1, '2022-04-13 12:30:00', NULL, 480, NULL),
+       (34, 34, FALSE, 45462559, NULL, 1, '2022-04-14 13:30:00', NULL, 240, NULL),
+       (35, 35, FALSE, 45462560, NULL, 2, '2022-04-15 14:30:00', NULL, 360, NULL),
+       (36, 36, FALSE, 45462561, NULL, 2, '2022-04-02 15:30:00', NULL, 720, NULL),
+       (37, 37, FALSE, 45462562, NULL, 2, '2022-04-03 16:30:00', NULL, 120, NULL),
+       (38, 38, FALSE, 45462563, NULL, 3, '2022-04-04 17:30:00', '2022-04-04', 600, NULL),
+       (39, 39, FALSE, 45462564, NULL, 2, '2022-04-05 10:15:00', NULL, 120, NULL),
+       (40, 40, FALSE, 45462565, NULL, 1, '2022-04-06 11:15:00', NULL, 600, NULL),
+       (41, 41, FALSE, 45462566, NULL, 3, '2022-04-07 12:15:00', '2022-04-07', 320, NULL),
+       (42, 42, FALSE, 45462567, NULL, 2, '2022-04-08 13:15:00', NULL, 480, NULL),
+       (43, 43, FALSE, 45462568, NULL, 2, '2022-04-09 14:15:00', NULL, 240, NULL),
+       (44, 44, FALSE, 45462569, NULL, 2, '2022-04-01 15:15:00', NULL, 360, NULL),
+       (45, 45, FALSE, 45462570, NULL, 2, '2022-04-02 16:15:00', NULL, 720, NULL),
+       (46, 46, FALSE, 45462571, NULL, 2, '2022-04-03 10:45:00', NULL, 480, NULL),
+       (47, 47, FALSE, 45462572, NULL, 3, '2022-04-04 11:45:00', '2022-04-04', 320, NULL),
+       (48, 48, FALSE, 45462573, NULL, 1, '2022-04-05 12:45:00', NULL, 480, NULL),
+       (49, 49, FALSE, 45462574, NULL, 1, '2022-04-06 13:45:00', NULL, 240, NULL),
+       (50, 50, FALSE, 45462575, NULL, 1, '2022-04-07 14:45:00', NULL, 360, NULL);
+
+INSERT INTO order_service (order_id, service_id)
+VALUES (1, 34),
+       (1, 31),
+       (1, 353),
+       (1, 336),
+       (2, 98),
+       (2, 45),
+       (2, 89),
+       (2, 99),
+       (2, 123),
+       (3, 92),
+       (3, 45),
+       (3, 57),
+       (3, 88),
+       (4, 92),
+       (4, 45),
+       (4, 57),
+       (4, 88),
+       (4, 44),
+       (5, 98),
+       (5, 45),
+       (5, 89),
+       (5, 353),
+       (5, 336),
+       (5, 34),
+       (6, 34),
+       (6, 31),
+       (6, 353),
+       (7, 98),
+       (7, 45),
+       (7, 89),
+       (7, 99),
+       (8, 92),
+       (8, 45),
+       (8, 57),
+       (8, 89),
+       (9, 92),
+       (9, 45),
+       (9, 57),
+       (9, 88),
+       (10, 98),
+       (10, 45),
+       (10, 89),
+       (10, 353),
+       (10, 336),
+       (11, 34),
+       (11, 31),
+       (11, 353),
+       (12, 98),
+       (12, 45),
+       (12, 89),
+       (12, 99),
+       (13, 92),
+       (13, 45),
+       (13, 57),
+       (14, 92),
+       (14, 45),
+       (14, 57),
+       (14, 88),
+       (15, 98),
+       (15, 45),
+       (15, 89),
+       (15, 353),
+       (15, 336),
+       (16, 34),
+       (16, 31),
+       (16, 353),
+       (17, 98),
+       (17, 45),
+       (17, 89),
+       (17, 99),
+       (18, 92),
+       (18, 45),
+       (18, 57),
+       (19, 92),
+       (19, 45),
+       (19, 57),
+       (19, 88),
+       (20, 98),
+       (20, 45),
+       (20, 89),
+       (20, 353),
+       (20, 336),
+       (21, 34),
+       (21, 31),
+       (21, 353),
+       (22, 98),
+       (22, 45),
+       (22, 89),
+       (22, 99),
+       (23, 92),
+       (23, 45),
+       (23, 57),
+       (24, 92),
+       (24, 45),
+       (24, 57),
+       (24, 88),
+       (25, 98),
+       (25, 45),
+       (25, 89),
+       (25, 353),
+       (25, 336),
+       (26, 34),
+       (26, 31),
+       (26, 353),
+       (27, 98),
+       (27, 45),
+       (27, 89),
+       (27, 99),
+       (28, 92),
+       (28, 45),
+       (28, 57),
+       (29, 92),
+       (29, 45),
+       (29, 57),
+       (29, 88),
+       (30, 98),
+       (30, 45),
+       (30, 89),
+       (30, 353),
+       (30, 336),
+       (31, 34),
+       (31, 31),
+       (31, 353),
+       (32, 98),
+       (32, 45),
+       (32, 89),
+       (32, 99),
+       (33, 92),
+       (33, 45),
+       (33, 57),
+       (34, 92),
+       (34, 45),
+       (34, 57),
+       (34, 88),
+       (35, 98),
+       (35, 45),
+       (35, 89),
+       (35, 353),
+       (35, 336),
+       (36, 34),
+       (36, 31),
+       (36, 353),
+       (37, 98),
+       (37, 45),
+       (37, 89),
+       (37, 99),
+       (38, 92),
+       (38, 45),
+       (38, 57),
+       (39, 92),
+       (39, 45),
+       (39, 57),
+       (39, 88),
+       (40, 98),
+       (40, 45),
+       (40, 89),
+       (40, 353),
+       (40, 336),
+       (41, 34),
+       (41, 31),
+       (41, 353),
+       (42, 98),
+       (42, 45),
+       (42, 89),
+       (42, 99),
+       (43, 92),
+       (43, 45),
+       (43, 57),
+       (44, 92),
+       (44, 45),
+       (44, 57),
+       (44, 88),
+       (45, 98),
+       (45, 45),
+       (45, 89),
+       (45, 353),
+       (45, 336),
+       (46, 34),
+       (46, 31),
+       (46, 353),
+       (47, 98),
+       (47, 45),
+       (47, 89),
+       (47, 99),
+       (48, 92),
+       (48, 45),
+       (48, 57),
+       (49, 92),
+       (49, 45),
+       (49, 57),
+       (49, 88),
+       (50, 98),
+       (50, 45),
+       (50, 89),
+       (50, 353),
+       (50, 336);
+
+SELECT 'job_title' AS table_name, COUNT(*) AS row_total FROM job_title
+ UNION ALL
+SELECT 'order_status', COUNT(*) FROM order_status
+ UNION ALL
+SELECT 'staff', COUNT(*) FROM staff
+ UNION ALL
+SELECT 'login_history', COUNT(*) FROM login_history
+ UNION ALL
+SELECT 'client', COUNT(*) FROM client
+ UNION ALL
+SELECT 'service', COUNT(*) FROM service
+ UNION ALL
+SELECT 'rental_order', COUNT(*) FROM rental_order
+ UNION ALL
+SELECT 'order_service', COUNT(*) FROM order_service;
